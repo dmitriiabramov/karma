@@ -27,10 +27,12 @@ describe 'middleware.karma', ->
   handler = filesDeferred = nextSpy = response = null
 
   beforeEach ->
+    clientConfig = foo: 'bar'
     nextSpy = sinon.spy()
     response = new HttpResponseMock
     filesDeferred = q.defer()
-    handler = createKarmaMiddleware filesDeferred.promise, serveFile, '/base/path', '/__karma__/'
+    handler = createKarmaMiddleware filesDeferred.promise, serveFile,
+      '/base/path', '/__karma__/', clientConfig
 
   # helpers
   includedFiles = (files) ->
@@ -39,8 +41,13 @@ describe 'middleware.karma', ->
   servedFiles = (files) ->
     filesDeferred.resolve {included: [], served: files}
 
+  normalizedHttpRequest = (urlPath) ->
+    req = new HttpRequestMock(urlPath)
+    req.normalizedUrl = req.url
+    return req
+
   callHandlerWith = (urlPath, next) ->
-    promise = handler new HttpRequestMock(urlPath), response, next or nextSpy
+    promise = handler normalizedHttpRequest(urlPath), response, next or nextSpy
     if promise and promise.done then promise.done()
 
 
@@ -55,19 +62,19 @@ describe 'middleware.karma', ->
 
 
   it 'should not serve outside of urlRoot', ->
-    handler new HttpRequestMock('/'), null, nextSpy
+    handler normalizedHttpRequest('/'), null, nextSpy
     expect(nextSpy).to.have.been.called
     nextSpy.reset()
 
-    handler new HttpRequestMock('/client.html'), null, nextSpy
+    handler normalizedHttpRequest('/client.html'), null, nextSpy
     expect(nextSpy).to.have.been.called
     nextSpy.reset()
 
-    handler new HttpRequestMock('/debug.html'), null, nextSpy
+    handler normalizedHttpRequest('/debug.html'), null, nextSpy
     expect(nextSpy).to.have.been.called
     nextSpy.reset()
 
-    handler new HttpRequestMock('/context.html'), null, nextSpy
+    handler normalizedHttpRequest('/context.html'), null, nextSpy
     expect(nextSpy).to.have.been.called
 
 
@@ -271,6 +278,19 @@ describe 'middleware.karma', ->
       '<link type="text/css" href="/base/b.css" rel="stylesheet">\n' +
       '<link href="/absolute/second.html" rel="import">\n' +
       '<link href="/base/d.html" rel="import">'
+      done()
+
+    callHandlerWith '/__karma__/debug.html'
+
+
+  it 'should inline client config to debug.html', (done) ->
+    includedFiles [
+      new MockFile('/first.js')
+    ]
+    fsMock._touchFile '/karma/static/debug.html', 1, '%CLIENT_CONFIG%'
+
+    response.once 'end', ->
+      expect(response).to.beServedAs 200, 'window.__karma__.config = {"foo":"bar"};\n'
       done()
 
     callHandlerWith '/__karma__/debug.html'
